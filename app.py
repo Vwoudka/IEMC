@@ -22,14 +22,14 @@ st.set_page_config(
 
 # ==================== CONSTANTES THINGSPEAK ====================
 # Channel de données (mesures)
-THINGSPEAK_CHANNEL_ID = "VOTRE_CHANNEL_ID"
-THINGSPEAK_READ_API = "VOTRE_READ_API_KEY"
-THINGSPEAK_WRITE_API = "VOTRE_WRITE_API_KEY"
+THINGSPEAK_CHANNEL_ID = "3428306"
+THINGSPEAK_READ_API = "https://api.thingspeak.com/channels/3428306/feeds.json?api_key=UIWSRR7X029RCD5V&results=2"
+THINGSPEAK_WRITE_API = "https://api.thingspeak.com/update?api_key=P1FHXPEIAOB3GI6T&field1=0"
 
 # Channel de configuration (seuils)
-THINGSPEAK_CONFIG_CHANNEL_ID = "VOTRE_CONFIG_CHANNEL_ID"
-THINGSPEAK_CONFIG_READ_API = "VOTRE_CONFIG_READ_API_KEY"
-THINGSPEAK_CONFIG_WRITE_API = "VOTRE_CONFIG_WRITE_API_KEY"
+THINGSPEAK_CONFIG_CHANNEL_ID = "3428310"
+THINGSPEAK_CONFIG_READ_API = "https://api.thingspeak.com/channels/3428310/feeds.json?api_key=F54BNJ6PACIS3OKD&results=2"
+THINGSPEAK_CONFIG_WRITE_API = "https://api.thingspeak.com/update?api_key=K7TDWWD0WEQN97RR&field1=0"
 
 # URLs ThingSpeak
 THINGSPEAK_API_URL = "https://api.thingspeak.com"
