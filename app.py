@@ -47,13 +47,27 @@ def get_latest_data():
         if response.status_code == 200:
             data = response.json()
             
-            # Vérifier si les données existent
-            if data.get("field1") is None and data.get("field2") is None:
+            # ThingSpeak retourne TOUJOURS un JSON, même sans données
+            # Vérifier si field1 et field2 sont vides, nuls, ou "0"
+            f1 = data.get("field1")
+            f2 = data.get("field2")
+            
+            # Pas de données si les champs sont None, vides, ou "0"
+            has_data = (
+                f1 is not None and 
+                f1 != "" and 
+                f1 != "0" and
+                f2 is not None and 
+                f2 != "" and
+                f2 != "0"
+            )
+            
+            if not has_data:
                 return None
             
             return {
-                "voltage": float(data.get("field1") or 0),
-                "current": float(data.get("field2") or 0),
+                "voltage": float(f1),
+                "current": float(f2),
                 "power": float(data.get("field3") or 0),
                 "relay": bool(int(data.get("field4") or 0)),
                 "timestamp": data.get("created_at", "")
@@ -102,9 +116,16 @@ def send_config_to_thingspeak(voltage_threshold, current_threshold, power_thresh
             "field3": power_threshold,
             "field4": "1" if relay_state else "0"
         }
+        
+        print(f"[DEBUG] Sending to ThingSpeak: {data}")  # Debug console
+        
         response = requests.post(url, data=data, timeout=10)
+        
+        print(f"[DEBUG] Response: {response.status_code} - {response.text}")  # Debug console
+        
         return response.status_code == 200
     except Exception as e:
+        print(f"[ERROR] {e}")  # Debug console
         st.error(f"Erreur envoi configuration: {e}")
         return False
 
@@ -118,12 +139,23 @@ def get_current_config():
         if response.status_code == 200:
             data = response.json()
             
-            if data.get("field1") is None and data.get("field2") is None:
+            # Même logique: vérifier si les données sont réelles
+            f1 = data.get("field1")
+            f2 = data.get("field2")
+            
+            has_config = (
+                f1 is not None and 
+                f1 != "" and
+                f2 is not None and 
+                f2 != ""
+            )
+            
+            if not has_config:
                 return None
             
             return {
-                "voltage_threshold": float(data.get("field1") or 240),
-                "current_threshold": float(data.get("field2") or 15),
+                "voltage_threshold": float(f1),
+                "current_threshold": float(f2),
                 "power_threshold": float(data.get("field3") or 3000),
                 "relay_command": bool(int(data.get("field4") or 0))
             }
@@ -251,7 +283,37 @@ with st.sidebar:
         value=bool(config["relay_command"]) if config else False
     )
     
-    if st.button("📤 Appliquer Configuration", type="primary", use_container_width=True):
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("⚡ Allumer Relais", type="primary", use_container_width=True):
+            with st.spinner("Envoi..."):
+                success = send_config_to_thingspeak(
+                    voltage_threshold,
+                    current_threshold,
+                    power_threshold,
+                    True
+                )
+                if success:
+                    st.success("Relais ON envoyé!")
+                else:
+                    st.error("Erreur")
+    
+    with col2:
+        if st.button("🔴 Éteindre Relais", use_container_width=True):
+            with st.spinner("Envoi..."):
+                success = send_config_to_thingspeak(
+                    voltage_threshold,
+                    current_threshold,
+                    power_threshold,
+                    False
+                )
+                if success:
+                    st.success("Relais OFF envoyé!")
+                else:
+                    st.error("Erreur")
+    
+    if st.button("📤 Appliquer Tout", use_container_width=True):
         with st.spinner("Envoi en cours..."):
             success = send_config_to_thingspeak(
                 voltage_threshold,
