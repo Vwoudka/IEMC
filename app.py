@@ -7,29 +7,24 @@ import streamlit as st
 import requests
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
+from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import time
-import json
-import os
+import math
 
 # ==================== CONFIGURATION ====================
 st.set_page_config(
     page_title="IoT Surveillance ESP32S2",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # ==================== CONSTANTES THINGSPEAK ====================
-# IMPORTANT: Juste les API keys, PAS les URLs complètes!
-
-# Channel 1 - Données (mesures ESP32)
 THINGSPEAK_CHANNEL_ID = "3428306"
 THINGSPEAK_READ_API_KEY = "UIWSRR7X029RCD5V"
 THINGSPEAK_WRITE_API_KEY = "P1FHXPEIAOB3GI6T"
 
-# Channel 2 - Configuration (seuils)
 THINGSPEAK_CONFIG_CHANNEL_ID = "3428310"
 THINGSPEAK_CONFIG_READ_API_KEY = "F54BNJ6PACIS3OKD"
 THINGSPEAK_CONFIG_WRITE_API_KEY = "K7TDWWD0WEQN97RR"
@@ -43,28 +38,14 @@ def get_latest_data():
         url = f"{THINGSPEAK_API_URL}/channels/{THINGSPEAK_CHANNEL_ID}/feeds/last.json"
         params = {"api_key": THINGSPEAK_READ_API_KEY}
         response = requests.get(url, params=params, timeout=10)
-        
         if response.status_code == 200:
             data = response.json()
-            
-            # ThingSpeak retourne TOUJOURS un JSON, même sans données
-            # Vérifier si field1 et field2 sont vides, nuls, ou "0"
             f1 = data.get("field1")
             f2 = data.get("field2")
-            
-            # Pas de données si les champs sont None, vides, ou "0"
-            has_data = (
-                f1 is not None and 
-                f1 != "" and 
-                f1 != "0" and
-                f2 is not None and 
-                f2 != "" and
-                f2 != "0"
-            )
-            
+            has_data = (f1 is not None and f1 != "" and f1 != "0" and
+                       f2 is not None and f2 != "" and f2 != "0")
             if not has_data:
                 return None
-            
             return {
                 "voltage": float(f1),
                 "current": float(f2),
@@ -73,24 +54,17 @@ def get_latest_data():
                 "timestamp": data.get("created_at", "")
             }
         return None
-    except Exception as e:
-        st.error(f"Erreur récupération données: {e}")
+    except:
         return None
 
 def get_historical_data(days=7):
-    """Récupère les données historiques par jour"""
+    """Récupère les données historiques"""
     try:
         url = f"{THINGSPEAK_API_URL}/channels/{THINGSPEAK_CHANNEL_ID}/feeds.json"
-        params = {
-            "api_key": THINGSPEAK_READ_API_KEY,
-            "days": days
-        }
+        params = {"api_key": THINGSPEAK_READ_API_KEY, "days": days}
         response = requests.get(url, params=params, timeout=15)
-        
         if response.status_code == 200:
-            data = response.json()
-            feeds = data.get("feeds", [])
-            
+            feeds = response.json().get("feeds", [])
             if feeds:
                 df = pd.DataFrame(feeds)
                 df["created_at"] = pd.to_datetime(df["created_at"])
@@ -101,8 +75,7 @@ def get_historical_data(days=7):
                 df["date"] = df["created_at"].dt.date
                 return df
         return None
-    except Exception as e:
-        st.error(f"Erreur récupération historique: {e}")
+    except:
         return None
 
 def send_config_to_thingspeak(voltage_threshold, current_threshold, power_threshold, relay_state):
@@ -116,17 +89,9 @@ def send_config_to_thingspeak(voltage_threshold, current_threshold, power_thresh
             "field3": power_threshold,
             "field4": "1" if relay_state else "0"
         }
-        
-        print(f"[DEBUG] Sending to ThingSpeak: {data}")  # Debug console
-        
         response = requests.post(url, data=data, timeout=10)
-        
-        print(f"[DEBUG] Response: {response.status_code} - {response.text}")  # Debug console
-        
         return response.status_code == 200
-    except Exception as e:
-        print(f"[ERROR] {e}")  # Debug console
-        st.error(f"Erreur envoi configuration: {e}")
+    except:
         return False
 
 def get_current_config():
@@ -135,24 +100,13 @@ def get_current_config():
         url = f"{THINGSPEAK_API_URL}/channels/{THINGSPEAK_CONFIG_CHANNEL_ID}/feeds/last.json"
         params = {"api_key": THINGSPEAK_CONFIG_READ_API_KEY}
         response = requests.get(url, params=params, timeout=10)
-        
         if response.status_code == 200:
             data = response.json()
-            
-            # Même logique: vérifier si les données sont réelles
             f1 = data.get("field1")
             f2 = data.get("field2")
-            
-            has_config = (
-                f1 is not None and 
-                f1 != "" and
-                f2 is not None and 
-                f2 != ""
-            )
-            
+            has_config = (f1 is not None and f1 != "" and f2 is not None and f2 != "")
             if not has_config:
                 return None
-            
             return {
                 "voltage_threshold": float(f1),
                 "current_threshold": float(f2),
@@ -163,497 +117,637 @@ def get_current_config():
     except:
         return None
 
-# ==================== CSS CUSTOM ====================
+# ==================== CSS Lovable-inspired ====================
 st.markdown("""
 <style>
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #FF6B35;
-        text-align: center;
-        padding: 1rem;
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-        border-radius: 10px;
-        margin-bottom: 2rem;
-    }
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-    }
-    .metric-value {
-        font-size: 2.5rem;
-        font-weight: bold;
-        margin: 0.5rem 0;
-    }
-    .metric-label {
-        font-size: 1rem;
-        opacity: 0.9;
-    }
-    .alert-box {
-        background: linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-        margin: 1rem 0;
-    }
-    .relay-on {
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-        padding: 2rem;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-        font-size: 1.5rem;
-        font-weight: bold;
-    }
-    .relay-off {
-        background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
-        padding: 2rem;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-        font-size: 1.5rem;
-        font-weight: bold;
-    }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+    --bg: #0a0e17;
+    --surface: rgba(17, 24, 39, 0.75);
+    --surface-2: #1f2937;
+    --border: rgba(255,255,255,0.06);
+    --accent: #22d3ee;
+    --accent-dim: rgba(34, 211, 238, 0.15);
+    --success: #34d399;
+    --success-dim: rgba(52, 211, 153, 0.12);
+    --warning: #fbbf24;
+    --warning-dim: rgba(251, 191, 36, 0.12);
+    --danger: #f87171;
+    --danger-dim: rgba(248, 113, 113, 0.12);
+    --text: #f1f5f9;
+    --text-dim: #64748b;
+    --radius: 16px;
+}
+
+.stApp {
+    background: var(--bg) !important;
+    font-family: 'Inter', sans-serif !important;
+}
+
+.stApp::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+        linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.stApp::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+        radial-gradient(60rem 40rem at 90% -10%, rgba(34, 211, 238, 0.08), transparent),
+        radial-gradient(50rem 30rem at -10% 110%, rgba(251, 191, 36, 0.04), transparent);
+    pointer-events: none;
+    z-index: 0;
+}
+
+[data-testid="stMain"] { position: relative; z-index: 1; }
+[data-testid="stSidebar"] { background: rgba(10, 14, 23, 0.95) !important; border-right: 1px solid var(--border) !important; backdrop-filter: blur(20px); }
+[data-testid="stSidebar"] [data-testid="stMarkdown"] { color: var(--text-dim); font-size: 13px; }
+[data-testid="stSidebar"] label { color: var(--text) !important; font-family: 'Inter', sans-serif !important; font-size: 12px !important; }
+[data-testid="stSidebar"] [data-testid="stMarkdown"] h3 { color: var(--accent) !important; font-size: 11px !important; letter-spacing: 0.15em; text-transform: uppercase; font-weight: 600; }
+
+h1, h2, h3, h4, h5, h6, p, span, div, label { color: var(--text) !important; }
+.stMarkdown p { color: var(--text-dim) !important; font-size: 13px; }
+
+.panel {
+    background: var(--surface);
+    backdrop-filter: blur(16px) saturate(140%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+}
+
+.stat-chip {
+    background: var(--surface);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    text-align: center;
+}
+.stat-chip .label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--text-dim);
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+.stat-chip .value {
+    font-size: 1.25rem;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+}
+.stat-chip .value.accent { color: var(--accent); }
+.stat-chip .value.warning { color: var(--warning); }
+.stat-chip .value.success { color: var(--success); }
+.stat-chip .value.danger { color: var(--danger); }
+
+.hero-power {
+    background: var(--surface);
+    backdrop-filter: blur(16px) saturate(140%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+    position: relative;
+    overflow: hidden;
+}
+.hero-power .big-value {
+    font-size: 4rem;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--accent);
+    line-height: 1;
+    text-shadow: 0 0 30px rgba(34, 211, 238, 0.3);
+}
+.hero-power .unit {
+    font-size: 1.5rem;
+    color: var(--text-dim);
+    margin-left: 8px;
+    font-weight: 500;
+}
+.hero-power .subtitle {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    margin-bottom: 8px;
+}
+.hero-power .status-line {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 12px;
+}
+
+.live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+.live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    animation: pulse-ring 2s ease-out infinite;
+}
+@keyframes pulse-ring {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6); }
+    50% { box-shadow: 0 0 0 8px rgba(52, 211, 153, 0); }
+}
+
+.gauge-card {
+    background: var(--surface);
+    backdrop-filter: blur(16px) saturate(140%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    text-align: center;
+}
+.gauge-card .gauge-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--text-dim);
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+.gauge-card .gauge-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text);
+}
+
+.relay-panel {
+    background: var(--surface);
+    backdrop-filter: blur(16px) saturate(140%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    border-left: 3px solid var(--danger);
+}
+.relay-panel.relay-on {
+    border-left-color: var(--success);
+}
+.relay-panel .relay-status {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 8px;
+    display: inline-block;
+}
+.relay-panel .relay-status.on {
+    background: var(--success-dim);
+    color: var(--success);
+}
+.relay-panel .relay-status.off {
+    background: var(--danger-dim);
+    color: var(--danger);
+}
+
+.alert-box {
+    background: var(--danger-dim);
+    border: 1px solid rgba(248, 113, 113, 0.3);
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    color: var(--danger);
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--text-dim);
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.threshold-field {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+}
+.threshold-field .field-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--text-dim);
+    font-weight: 500;
+}
+.threshold-field input {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    font-weight: 600;
+    width: 100%;
+    outline: none;
+}
+
+.stButton > button {
+    background: var(--surface-2) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text) !important;
+    border-radius: 10px !important;
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 500 !important;
+    transition: all 0.2s !important;
+}
+.stButton > button:hover {
+    border-color: var(--accent) !important;
+    color: var(--accent) !important;
+}
+.stButton > button[kind="primary"] {
+    background: var(--accent-dim) !important;
+    border-color: rgba(34, 211, 238, 0.3) !important;
+    color: var(--accent) !important;
+}
+.stButton > button[kind="primary"]:hover {
+    background: rgba(34, 211, 238, 0.25) !important;
+}
+
+.stTabs [data-baseweb="tab-list"] {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+    padding: 4px !important;
+    gap: 4px !important;
+}
+.stTabs [data-baseweb="tab"] {
+    background: transparent !important;
+    color: var(--text-dim) !important;
+    border-radius: 8px !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    padding: 8px 16px !important;
+}
+.stTabs [aria-selected="true"] {
+    background: var(--surface-2) !important;
+    color: var(--accent) !important;
+}
+
+.stNumberInput > div > div > input {
+    background: var(--surface-2) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+    color: var(--text) !important;
+    font-family: 'JetBrains Mono', monospace !important;
+}
+.stNumberInput label {
+    color: var(--text-dim) !important;
+    font-size: 11px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.1em !important;
+}
+
+.stToggle > div > div > button {
+    background: var(--surface-2) !important;
+    border: 1px solid var(--border) !important;
+}
+.stToggle > div > div > button[aria-checked="true"] {
+    background: var(--accent-dim) !important;
+    border-color: var(--accent) !important;
+}
+
+.stSelectbox > div > div {
+    background: var(--surface-2) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+    color: var(--text) !important;
+}
+
+.stDataFrame {
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+    overflow: hidden;
+}
+
+.js-plotly-plot .plotly .modebar { display: none !important; }
+
+.footer-text {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--text-dim);
+    text-align: center;
+    padding: 1.5rem 0 0.5rem;
+}
 </style>
 """, unsafe_allow_html=True)
 
-# ==================== HEADER ====================
-st.markdown('<div class="main-header">⚡ Système de Surveillance IoT ESP32S2</div>', unsafe_allow_html=True)
-st.markdown("**Capteurs:** ZMPT101B (Tension) + SCT-013 (Courant) | **Contrôle:** Relais GPIO 18")
-st.markdown("**Architecture:** ESP32S2 → ThingSpeak → Streamlit (ce site)")
-st.markdown("---")
+# ==================== HEADER (Top Nav) ====================
+data = get_latest_data()
+config = get_current_config()
+now = datetime.now().strftime("%H:%M:%S")
 
-# ==================== SIDEBAR ====================
-with st.sidebar:
-    st.header("⚙️ Configuration")
-    
-    st.subheader("📡 Statut Système")
-    data = get_latest_data()
-    
-    if data:
-        st.success("✅ ESP32S2 Connecté")
-        st.caption(f"Dernière: {data['timestamp']}")
-    else:
-        st.error("❌ ESP32S2 Déconnecté")
-    
-    st.divider()
-    
-    st.subheader("🔧 Seuils de Découpage")
-    st.caption("Entrez les valeurs puis cliquez Appliquer")
-    
-    config = get_current_config()
-    
-    voltage_threshold = st.number_input(
-        "⚡ Seuil Tension (V)",
-        min_value=0.0,
-        max_value=260.0,
-        value=float(config["voltage_threshold"]) if config else 240.0,
-        step=1.0,
-        format="%.1f"
-    )
-    
-    current_threshold = st.number_input(
-        "🔌 Seuil Courant (A)",
-        min_value=0.0,
-        max_value=100.0,
-        value=float(config["current_threshold"]) if config else 15.0,
-        step=0.1,
-        format="%.2f"
-    )
-    
-    power_threshold = st.number_input(
-        "📊 Seuil Puissance (W)",
-        min_value=0,
-        max_value=50000,
-        value=int(config["power_threshold"]) if config else 3000,
-        step=10
-    )
-    
-    st.divider()
-    
-    st.subheader("🔌 Contrôle Relais")
-    
-    relay_command = st.toggle(
-        "Relais Marche/Arrêt",
-        value=bool(config["relay_command"]) if config else False
-    )
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("⚡ Allumer Relais", type="primary", use_container_width=True):
-            with st.spinner("Envoi..."):
-                success = send_config_to_thingspeak(
-                    voltage_threshold,
-                    current_threshold,
-                    power_threshold,
-                    True
-                )
-                if success:
-                    st.success("Relais ON envoyé!")
-                else:
-                    st.error("Erreur")
-    
-    with col2:
-        if st.button("🔴 Éteindre Relais", use_container_width=True):
-            with st.spinner("Envoi..."):
-                success = send_config_to_thingspeak(
-                    voltage_threshold,
-                    current_threshold,
-                    power_threshold,
-                    False
-                )
-                if success:
-                    st.success("Relais OFF envoyé!")
-                else:
-                    st.error("Erreur")
-    
-    if st.button("📤 Appliquer Tout", use_container_width=True):
-        with st.spinner("Envoi en cours..."):
-            success = send_config_to_thingspeak(
-                voltage_threshold,
-                current_threshold,
-                power_threshold,
-                relay_command
-            )
-            if success:
-                st.success("Configuration envoyée!")
-            else:
-                st.error("Erreur d'envoi")
-    
-    st.divider()
-    
-    auto_refresh = st.checkbox("🔄 Auto-refresh (30s)", value=True)
-    
-    if auto_refresh:
-        time.sleep(30)
-        st.rerun()
+relay_on = config["relay_command"] if config else False
+
+st.markdown(f"""
+<div style="display:flex; align-items:center; justify-content:space-between; padding:0.75rem 1.5rem; background:rgba(10,14,23,0.85); backdrop-filter:blur(20px); border-bottom:1px solid var(--border); border-radius:0; margin:-1rem -1rem 1.5rem -1rem; position:sticky; top:0; z-index:100;">
+    <div style="display:flex; align-items:center; gap:12px;">
+        <div style="width:36px; height:36px; background:var(--accent-dim); border:1px solid rgba(34,211,238,0.3); border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:18px;">⚡</div>
+        <div>
+            <div style="font-size:14px; font-weight:600; color:var(--text); letter-spacing:-0.02em;">EnergyGuard</div>
+            <div style="font-size:10px; color:var(--text-dim); font-family:monospace; text-transform:uppercase; letter-spacing:0.15em;">ESP32S2 SURVEILLANCE</div>
+        </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:16px; font-size:11px; color:var(--text-dim);">
+        <div style="display:flex; align-items:center; gap:6px;">
+            <span style="width:6px; height:6px; border-radius:50%; background:{'var(--success)' if data else 'var(--danger)'}; box-shadow:0 0 8px {'var(--success)' if data else 'var(--danger)'};"></span>
+            <span style="color:{'var(--success)' if data else 'var(--danger)'};">{'EN LIGNE' if data else 'HORS LIGNE'}</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:4px;">
+            <span style="padding:4px 10px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; font-size:10px; text-transform:uppercase; letter-spacing:0.1em;">Relais</span>
+            <span style="padding:4px 10px; font-size:11px; font-weight:600; color:{'var(--success)' if relay_on else 'var(--danger)'};">{'ACTIF' if relay_on else 'COUPÉ'}</span>
+        </div>
+        <div style="font-family:monospace; font-size:11px; color:var(--text-dim);">{now}</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # ==================== MAIN CONTENT ====================
 if data:
+    # Alertes
     alerts = []
-    if voltage_threshold > 0 and data["voltage"] > voltage_threshold:
-        alerts.append(f"⚠️ Tension trop élevée: {data['voltage']:.1f}V > {voltage_threshold:.1f}V")
-    if current_threshold > 0 and data["current"] > current_threshold:
-        alerts.append(f"⚠️ Courant trop élevé: {data['current']:.2f}A > {current_threshold:.2f}A")
-    if power_threshold > 0 and data["power"] > power_threshold:
-        alerts.append(f"⚠️ Puissance trop élevée: {data['power']:.1f}W > {power_threshold:.1f}W")
+    v_thresh = config["voltage_threshold"] if config else 240
+    i_thresh = config["current_threshold"] if config else 15
+    p_thresh = config["power_threshold"] if config else 3000
+    
+    if v_thresh > 0 and data["voltage"] > v_thresh:
+        alerts.append(f"Tension trop élevée: {data['voltage']:.1f}V > {v_thresh:.1f}V")
+    if i_thresh > 0 and data["current"] > i_thresh:
+        alerts.append(f"Courant trop élevé: {data['current']:.2f}A > {i_thresh:.2f}A")
+    if p_thresh > 0 and data["power"] > p_thresh:
+        alerts.append(f"Puissance trop élevée: {data['power']:.1f}W > {p_thresh:.1f}W")
     
     for alert in alerts:
-        st.markdown(f'<div class="alert-box">{alert}</div>', unsafe_allow_html=True)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">⚡ Tension</div>
-            <div class="metric-value">{data['voltage']:.1f} V</div>
-            <div class="metric-label">Seuil: {voltage_threshold:.1f}V</div>
+        st.markdown(f'<div class="alert-box">⚠ {alert}</div>', unsafe_allow_html=True)
+
+    # Header row
+    col_title, col_chips = st.columns([3, 2])
+    with col_title:
+        st.markdown("""
+        <div>
+            <h2 style="font-size:1.5rem; font-weight:600; letter-spacing:-0.02em; margin:0;">Supervision temps réel</h2>
+            <p style="font-size:12px; color:var(--text-dim); margin-top:4px;">ZMPT101B + SCT-013 · Échantillonnage 3s · ESP32S2</p>
         </div>
         """, unsafe_allow_html=True)
     
-    with col2:
+    with col_chips:
         st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">🔌 Courant</div>
-            <div class="metric-value">{data['current']:.2f} A</div>
-            <div class="metric-label">Seuil: {current_threshold:.2f}A</div>
+        <div style="display:flex; gap:12px; justify-content:flex-end;">
+            <div class="stat-chip">
+                <div class="label">Énergie session</div>
+                <div class="value accent">—</div>
+            </div>
+            <div class="stat-chip">
+                <div class="label">Coût session</div>
+                <div class="value warning">—</div>
+            </div>
         </div>
         """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">📊 Puissance</div>
-            <div class="metric-value">{data['power']:.1f} W</div>
-            <div class="metric-label">Seuil: {power_threshold:.1f}W</div>
+
+    # Hero Power + Live indicator
+    st.markdown(f"""
+    <div class="hero-power" style="margin-bottom:1.5rem;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+                <div class="subtitle">Puissance instantanée</div>
+                <div>
+                    <span class="big-value">{data['power']:.1f}</span>
+                    <span class="unit">W</span>
+                </div>
+                <div class="status-line">Fonctionnement nominal — mise à jour {data['timestamp'][-8:] if len(data['timestamp']) > 8 else now}</div>
+            </div>
+            <div class="live-badge">
+                <span class="live-dot"></span>
+                <span style="font-size:10px; color:var(--success); text-transform:uppercase; letter-spacing:0.1em; font-weight:500;">Flux en direct</span>
+            </div>
         </div>
-        """, unsafe_allow_html=True)
-    
-    with col4:
-        relay_status = "🟢 RELAIS ON" if data["relay"] else "🔴 RELAIS OFF"
-        relay_class = "relay-on" if data["relay"] else "relay-off"
-        st.markdown(f"""
-        <div class="{relay_class}">
-            {relay_status}
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    tab1, tab2, tab3 = st.tabs(["📈 Temps Réel", "📊 Historique (par Jour)", "📉 Analyse"])
-    
-    with tab1:
-        st.subheader("Données en Temps Réel")
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Grid layout
+    col_main, col_side = st.columns([2, 1])
+
+    with col_main:
+        # Gauges
+        g_col1, g_col2, g_col3 = st.columns(3)
         
-        col1, col2, col3 = st.columns(3)
+        with g_col1:
+            pct_v = min(1, data["voltage"] / 260) if v_thresh == 0 else min(1, data["voltage"] / v_thresh)
+            st.markdown(f"""
+            <div class="gauge-card">
+                <div class="gauge-label">⚡ Tension</div>
+                <svg viewBox="0 0 100 55" style="width:100%; max-width:160px;">
+                    <path d="M 8 50 A 42 42 0 0 1 92 50" stroke="var(--surface-2)" stroke-width="8" fill="none" stroke-linecap="round"/>
+                    <path d="M 8 50 A 42 42 0 0 1 92 50" stroke="var(--accent)" stroke-width="8" fill="none" stroke-linecap="round"
+                        stroke-dasharray="{132 * pct_v} 132" style="filter:drop-shadow(0 0 6px var(--accent))"/>
+                    <circle cx="50" cy="50" r="3" fill="var(--accent)"/>
+                </svg>
+                <div class="gauge-value" style="color:var(--accent);">{data['voltage']:.1f} <span style="font-size:12px; color:var(--text-dim);">V</span></div>
+            </div>
+            """, unsafe_allow_html=True)
         
-        with col1:
-            fig_voltage = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=data["voltage"],
-                title={"text": "Tension (V)"},
-                gauge={
-                    "axis": {"range": [0, 260]},
-                    "bar": {"color": "#FF6B35"},
-                    "steps": [
-                        {"range": [0, voltage_threshold], "color": "#90EE90"},
-                        {"range": [voltage_threshold, 260], "color": "#FF6B6B"}
-                    ],
-                    "threshold": {
-                        "line": {"color": "red", "width": 4},
-                        "thickness": 0.75,
-                        "value": voltage_threshold
-                    }
-                }
-            ))
-            fig_voltage.update_layout(height=300)
-            st.plotly_chart(fig_voltage, use_container_width=True)
+        with g_col2:
+            pct_i = min(1, data["current"] / max(i_thresh, 30))
+            st.markdown(f"""
+            <div class="gauge-card">
+                <div class="gauge-label">🔌 Courant</div>
+                <svg viewBox="0 0 100 55" style="width:100%; max-width:160px;">
+                    <path d="M 8 50 A 42 42 0 0 1 92 50" stroke="var(--surface-2)" stroke-width="8" fill="none" stroke-linecap="round"/>
+                    <path d="M 8 50 A 42 42 0 0 1 92 50" stroke="var(--warning)" stroke-width="8" fill="none" stroke-linecap="round"
+                        stroke-dasharray="{132 * pct_i} 132" style="filter:drop-shadow(0 0 6px var(--warning))"/>
+                    <circle cx="50" cy="50" r="3" fill="var(--warning)"/>
+                </svg>
+                <div class="gauge-value" style="color:var(--warning);">{data['current']:.2f} <span style="font-size:12px; color:var(--text-dim);">A</span></div>
+            </div>
+            """, unsafe_allow_html=True)
         
-        with col2:
-            fig_current = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=data["current"],
-                title={"text": "Courant (A)"},
-                gauge={
-                    "axis": {"range": [0, 30]},
-                    "bar": {"color": "#4ECDC4"},
-                    "steps": [
-                        {"range": [0, current_threshold], "color": "#90EE90"},
-                        {"range": [current_threshold, 30], "color": "#FF6B6B"}
-                    ],
-                    "threshold": {
-                        "line": {"color": "red", "width": 4},
-                        "thickness": 0.75,
-                        "value": current_threshold
-                    }
-                }
-            ))
-            fig_current.update_layout(height=300)
-            st.plotly_chart(fig_current, use_container_width=True)
-        
-        with col3:
-            fig_power = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=data["power"],
-                title={"text": "Puissance (W)"},
-                gauge={
-                    "axis": {"range": [0, 5000]},
-                    "bar": {"color": "#9B59B6"},
-                    "steps": [
-                        {"range": [0, power_threshold], "color": "#90EE90"},
-                        {"range": [power_threshold, 5000], "color": "#FF6B6B"}
-                    ],
-                    "threshold": {
-                        "line": {"color": "red", "width": 4},
-                        "thickness": 0.75,
-                        "value": power_threshold
-                    }
-                }
-            ))
-            fig_power.update_layout(height=300)
-            st.plotly_chart(fig_power, use_container_width=True)
-    
-    with tab2:
-        st.subheader("Données Historiques par Jour")
-        
-        days = st.selectbox("Période (jours)", [1, 3, 7, 14, 30], index=2)
-        
-        df = get_historical_data(days)
-        
-        if df is not None and not df.empty:
-            unique_dates = sorted(df["date"].unique())
-            
-            st.info(f"📊 {len(unique_dates)} jour(s) de données | {len(df)} mesures au total")
-            
-            for date in unique_dates:
-                day_df = df[df["date"] == date]
-                
-                st.markdown(f"### 📅 {date}")
-                
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Tension Moy.", f"{day_df['voltage'].mean():.1f} V")
-                with col2:
-                    st.metric("Courant Moy.", f"{day_df['current'].mean():.2f} A")
-                with col3:
-                    st.metric("Puissance Moy.", f"{day_df['power'].mean():.1f} W")
-                with col4:
-                    st.metric("Mesures", len(day_df))
-                
+        with g_col3:
+            pct_p = min(1, data["power"] / max(p_thresh, 5000))
+            st.markdown(f"""
+            <div class="gauge-card">
+                <div class="gauge-label">📊 Puissance</div>
+                <svg viewBox="0 0 100 55" style="width:100%; max-width:160px;">
+                    <path d="M 8 50 A 42 42 0 0 1 92 50" stroke="var(--surface-2)" stroke-width="8" fill="none" stroke-linecap="round"/>
+                    <path d="M 8 50 A 42 42 0 0 1 92 50" stroke="var(--success)" stroke-width="8" fill="none" stroke-linecap="round"
+                        stroke-dasharray="{132 * pct_p} 132" style="filter:drop-shadow(0 0 6px var(--success))"/>
+                    <circle cx="50" cy="50" r="3" fill="var(--success)"/>
+                </svg>
+                <div class="gauge-value" style="color:var(--success);">{data['power']:.1f} <span style="font-size:12px; color:var(--text-dim);">W</span></div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Tabs
+        tab1, tab2 = st.tabs(["📈 Temps Réel", "📊 Historique"])
+
+        with tab1:
+            df_hist = get_historical_data(1)
+            if df_hist is not None and not df_hist.empty:
                 fig = go.Figure()
-                
                 fig.add_trace(go.Scatter(
-                    x=day_df["created_at"],
-                    y=day_df["voltage"],
-                    name="Tension (V)",
-                    line=dict(color="#FF6B35", width=2),
-                    yaxis="y"
-                ))
-                
-                fig.add_trace(go.Scatter(
-                    x=day_df["created_at"],
-                    y=day_df["current"],
-                    name="Courant (A)",
-                    line=dict(color="#4ECDC4", width=2),
-                    yaxis="y2"
-                ))
-                
-                fig.add_trace(go.Scatter(
-                    x=day_df["created_at"],
-                    y=day_df["power"],
-                    name="Puissance (W)",
-                    line=dict(color="#9B59B6", width=2, dash="dot"),
-                    yaxis="y3"
-                ))
-                
-                fig.update_layout(
-                    title=f"Mesures du {date}",
-                    xaxis_title="Heure",
-                    yaxis=dict(
-                        title="Tension (V)",
-                        titlefont=dict(color="#FF6B35"),
-                        tickfont=dict(color="#FF6B35")
-                    ),
-                    yaxis2=dict(
-                        title="Courant (A)",
-                        titlefont=dict(color="#4ECDC4"),
-                        tickfont=dict(color="#4ECDC4"),
-                        overlaying="y",
-                        side="right"
-                    ),
-                    yaxis3=dict(
-                        title="Puissance (W)",
-                        titlefont=dict(color="#9B59B6"),
-                        tickfont=dict(color="#9B59B6"),
-                        overlaying="y",
-                        side="right"
-                    ),
-                    height=350,
-                    legend=dict(x=0, y=1.12, orientation="h")
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-                
-                with st.expander(f"📋 Voir les données du {date}"):
-                    display_df = day_df[["created_at", "voltage", "current", "power", "relay"]].copy()
-                    display_df["created_at"] = display_df["created_at"].dt.strftime("%H:%M:%S")
-                    display_df.columns = ["Heure", "Tension (V)", "Courant (A)", "Puissance (W)", "Relais"]
-                    st.dataframe(display_df, use_container_width=True, hide_index=True)
-                
-                st.markdown("---")
-        else:
-            st.warning("Aucune donnée historique disponible")
-            st.info("Vérifiez que l'ESP32 envoie des données à ThingSpeak")
-    
-    with tab3:
-        st.subheader("Analyse Détaillée")
-        
-        if df is not None and not df.empty:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                fig_power = go.Figure()
-                
-                fig_power.add_trace(go.Scatter(
-                    x=df["created_at"],
-                    y=df["power"],
-                    mode="lines",
-                    name="Puissance",
-                    line=dict(color="#9B59B6", width=2),
+                    x=df_hist["created_at"], y=df_hist["power"],
+                    mode="lines", name="Puissance",
+                    line=dict(color="#22d3ee", width=2),
                     fill="tozeroy",
-                    fillcolor="rgba(155, 89, 182, 0.2)"
+                    fillcolor="rgba(34, 211, 238, 0.1)"
                 ))
-                
-                fig_power.add_hline(y=power_threshold, line_dash="dash",
-                                   line_color="red", annotation_text="Seuil")
-                
-                fig_power.update_layout(
-                    title="Puissance avec Seuil",
-                    xaxis_title="Temps",
-                    yaxis_title="Puissance (W)",
-                    height=400
+                fig.add_hline(y=p_thresh, line_dash="dash", line_color="#fbbf24", annotation_text="Seuil P")
+                fig.update_layout(
+                    template="plotly_dark",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    margin=dict(l=40, r=20, t=10, b=30),
+                    height=320,
+                    xaxis=dict(gridcolor="rgba(255,255,255,0.04)", tickfont=dict(size=10, color="#64748b")),
+                    yaxis=dict(gridcolor="rgba(255,255,255,0.04)", tickfont=dict(size=10, color="#64748b")),
+                    font=dict(family="Inter, sans-serif", color="#94a3b8"),
+                    showlegend=False,
                 )
-                
-                st.plotly_chart(fig_power, use_container_width=True)
-            
-            with col2:
-                fig_vi = px.scatter(
-                    df, 
-                    x="voltage", 
-                    y="current",
-                    title="Relation Tension-Courant",
-                    labels={"voltage": "Tension (V)", "current": "Courant (A)"},
-                    color="power",
-                    color_continuous_scale="Viridis",
-                    opacity=0.6
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Chargement des données temps réel...")
+
+        with tab2:
+            days = st.selectbox("Période (jours)", [1, 3, 7, 14, 30], index=2)
+            df = get_historical_data(days)
+            if df is not None and not df.empty:
+                fig = make_subplots(specs=[[{"secondary_y": True}]])
+                fig.add_trace(go.Scatter(
+                    x=df["created_at"], y=df["voltage"],
+                    mode="lines", name="Tension (V)",
+                    line=dict(color="#22d3ee", width=1.5),
+                ), secondary_y=False)
+                fig.add_trace(go.Scatter(
+                    x=df["created_at"], y=df["power"],
+                    mode="lines", name="Puissance (W)",
+                    line=dict(color="#fbbf24", width=1.5, dash="dot"),
+                ), secondary_y=True)
+                fig.update_layout(
+                    template="plotly_dark",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    margin=dict(l=40, r=40, t=10, b=30),
+                    height=350,
+                    xaxis=dict(gridcolor="rgba(255,255,255,0.04)", tickfont=dict(size=10, color="#64748b")),
+                    font=dict(family="Inter, sans-serif", color="#94a3b8"),
+                    legend=dict(orientation="h", y=1.12, font=dict(size=10)),
                 )
-                fig_vi.update_layout(height=400)
-                st.plotly_chart(fig_vi, use_container_width=True)
-            
-            st.subheader("📊 Statistiques Globales")
-            col1, col2, col3, col4, col5, col6 = st.columns(6)
-            
-            with col1:
-                st.metric("Tension Min", f"{df['voltage'].min():.1f} V")
-            with col2:
-                st.metric("Tension Max", f"{df['voltage'].max():.1f} V")
-            with col3:
-                st.metric("Courant Min", f"{df['current'].min():.2f} A")
-            with col4:
-                st.metric("Courant Max", f"{df['current'].max():.2f} A")
-            with col5:
-                st.metric("Puissance Max", f"{df['power'].max():.1f} W")
-            with col6:
-                st.metric("Total Mesures", len(df))
-        else:
-            st.warning("Données insuffisantes pour l'analyse")
+                fig.update_yaxes(title_text="Tension (V)", gridcolor="rgba(255,255,255,0.04)", tickfont=dict(size=10, color="#22d3ee"), secondary_y=False)
+                fig.update_yaxes(title_text="Puissance (W)", gridcolor="rgba(255,255,255,0.04)", tickfont=dict(size=10, color="#fbbf24"), secondary_y=True)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Aucune donnée historique disponible")
+
+    # Right sidebar
+    with col_side:
+        # Relay control
+        st.markdown(f"""
+        <div class="relay-panel {'relay-on' if relay_on else ''}" style="margin-bottom:1rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                <div>
+                    <div style="font-size:14px; font-weight:600; color:var(--text);">Gestion du circuit</div>
+                    <div style="font-size:11px; color:var(--text-dim); margin-top:2px;">Override manuel actif</div>
+                </div>
+                <div style="width:40px; height:40px; border-radius:50%; background:{'var(--success-dim)' if relay_on else 'var(--danger-dim)'}; display:flex; align-items:center; justify-content:center; font-size:18px;">⚡</div>
+            </div>
+            <div style="text-align:center; margin-bottom:8px;">
+                <span class="relay-status {'on' if relay_on else 'off'}">{'RELAY ACTIF' if relay_on else 'RELAY COUPÉ'}</span>
+            </div>
+            <div style="font-size:10px; color:var(--text-dim); text-align:center; font-family:monospace; text-transform:uppercase; letter-spacing:0.1em;">Lecture ThingSpeak ≈ 3s</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Buttons relay
+        b_col1, b_col2 = st.columns(2)
+        with b_col1:
+            if st.button("⚡ Allumer", type="primary", use_container_width=True):
+                if config:
+                    send_config_to_thingspeak(
+                        config["voltage_threshold"], config["current_threshold"],
+                        config["power_threshold"], True
+                    )
+                    st.rerun()
+        with b_col2:
+            if st.button("🔴 Couper", use_container_width=True):
+                if config:
+                    send_config_to_thingspeak(
+                        config["voltage_threshold"], config["current_threshold"],
+                        config["power_threshold"], False
+                    )
+                    st.rerun()
+
+        st.markdown('<div style="height:1rem;"></div>', unsafe_allow_html=True)
+
+        # Thresholds
+        st.markdown("""
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <span class="section-title" style="margin:0;">⚙ Seuils de sécurité</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        v_thresh_input = st.number_input("U MAX (V)", value=float(config["voltage_threshold"]) if config else 240.0, step=1.0, format="%.1f")
+        i_thresh_input = st.number_input("I MAX (A)", value=float(config["current_threshold"]) if config else 15.0, step=0.1, format="%.2f")
+        p_thresh_input = st.number_input("P MAX (W)", value=int(config["power_threshold"]) if config else 3000, step=10)
+
+        if st.button("💾 Enregistrer les seuils", use_container_width=True):
+            relay_state = config["relay_command"] if config else False
+            if send_config_to_thingspeak(v_thresh_input, i_thresh_input, p_thresh_input, relay_state):
+                st.success("Seuils enregistrés!")
+                time.sleep(0.5)
+                st.rerun()
+            else:
+                st.error("Erreur d'envoi")
+
+        st.markdown('<div style="height:1rem;"></div>', unsafe_allow_html=True)
+
+        # Historical table
+        if df is not None and not df.empty:
+            st.markdown('<div class="section-title">📋 Historique</div>', unsafe_allow_html=True)
+            display_df = df[["created_at", "voltage", "current", "power", "relay"]].tail(20).copy()
+            display_df["created_at"] = display_df["created_at"].dt.strftime("%H:%M:%S")
+            display_df.columns = ["Heure", "U (V)", "I (A)", "P (W)", "Relay"]
+            st.dataframe(display_df, use_container_width=True, hide_index=True, height=300)
 
 else:
-    st.error("❌ Impossible de récupérer les données du ESP32S2")
-    st.info("Vérifiez que:")
     st.markdown("""
-    1. Le ESP32S2 est alimenté et connecté au WiFi
-    2. Les IDs et API Keys ThingSpeak sont corrects
-    3. Le ESP32 envoie bien les données (vérifiez le moniteur série)
-    """)
-    
-    st.markdown("---")
-    st.subheader("🔧 Configuration ThingSpeak")
-    
-    with st.expander("Instructions de configuration"):
-        st.markdown("""
-        ### 1. Créer un compte ThingSpeak
-        - Allez sur [thingspeak.com](https://thingspeak.com)
-        - Créez un compte gratuit
-        
-        ### 2. Créer le Channel de données
-        - Channel > New Channel
-        - Nom: "ESP32 Surveillance"
-        - Fields: Tension, Courant, Puissance, Relais
-        - Notez le Channel ID et Write API Key
-        
-        ### 3. Créer le Channel de configuration
-        - Créez un 2ème channel
-        - Fields: Seuil Tension, Seuil Courant, Seuil Puissance, Commande Relais
-        - Notez le Channel ID et Write API Key
-        
-        ### 4. Mettre à jour le code
-        - Dans le firmware ESP32, remplissez les constantes
-        - Dans cette app, remplissez les constantes THINGSPEAK_*
-        """)
+    <div style="text-align:center; padding:3rem 1rem;">
+        <div style="font-size:4rem; margin-bottom:1rem;">📡</div>
+        <h2 style="font-size:1.5rem; font-weight:600; color:var(--danger);">Hors ligne</h2>
+        <p style="color:var(--text-dim); font-size:13px; max-width:400px; margin:1rem auto;">
+            Impossible de récupérer les données du ESP32S2. Vérifiez que l'appareil est alimenté et connecté au WiFi.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ==================== FOOTER ====================
-st.markdown("---")
 st.markdown("""
-<div style='text-align: center; color: #666; padding: 1rem;'>
-    <p><strong>IoT Surveillance System</strong> | ESP32S2 + ZMPT101B + SCT-013</p>
-    <p>Streamlit | ThingSpeak Cloud</p>
+<div class="footer-text" style="margin-top:2rem; padding:1rem 0 0.5rem; border-top:1px solid var(--border);">
+    <span>EnergyGuard · ESP32S2 · ZMPT101B + SCT-013 · ThingSpeak Cloud</span>
 </div>
 """, unsafe_allow_html=True)
