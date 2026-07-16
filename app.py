@@ -1,6 +1,13 @@
 """
 Système de Surveillance IoT - ESP32S2
 Application Streamlit pour monitoring et contrôle
+
+CHANGES FROM ORIGINAL:
+- Added auto-refresh (streamlit_autorefresh if installed, otherwise a
+  meta-refresh fallback) so the dashboard updates on its own instead of
+  only re-rendering when you click a button or manually reload the tab.
+  Interval is set just above ThingSpeak's 15s write floor (17s) so you
+  see new data as soon as it's realistically available.
 """
 
 import streamlit as st
@@ -19,6 +26,26 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+# ==================== AUTO-REFRESH ====================
+# ThingSpeak's free tier only accepts one write every 15s, so refreshing
+# faster than that just re-fetches the same reading. 17s gives a small
+# buffer so we're not racing the ESP32's own send() cycle.
+REFRESH_INTERVAL_MS = 17000
+
+try:
+    from streamlit_autorefresh import st_autorefresh
+    st_autorefresh(interval=REFRESH_INTERVAL_MS, key="data_refresh")
+except ImportError:
+    # Fallback if streamlit-autorefresh isn't installed: a meta-refresh
+    # tag. Less smooth (full page reload) but works with zero extra deps.
+    # Install the proper package for a clean experience:
+    #   pip install streamlit-autorefresh
+    st.markdown(
+        f'<meta http-equiv="refresh" content="{REFRESH_INTERVAL_MS // 1000}">',
+        unsafe_allow_html=True,
+    )
+    st.caption("⚠ streamlit-autorefresh not installed — using basic page reload. Run `pip install streamlit-autorefresh` for smoother updates.")
 
 # ==================== CONSTANTES THINGSPEAK ====================
 THINGSPEAK_CHANNEL_ID = "3428306"
