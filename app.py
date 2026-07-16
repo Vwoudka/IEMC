@@ -471,7 +471,7 @@ st.markdown(f"""
     <div style="display:flex; align-items:center; gap:12px;">
         <div style="width:36px; height:36px; background:var(--accent-dim); border:1px solid rgba(34,211,238,0.3); border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:18px;">⚡</div>
         <div>
-            <div style="font-size:14px; font-weight:600; color:var(--text); letter-spacing:-0.02em;">EnergyGuard</div>
+            <div style="font-size:14px; font-weight:600; color:var(--text); letter-spacing:-0.02em;">Instant Energy Monitoring and Control</div>
             <div style="font-size:10px; color:var(--text-dim); font-family:monospace; text-transform:uppercase; letter-spacing:0.15em;">ESP32S2 SURVEILLANCE</div>
         </div>
     </div>
